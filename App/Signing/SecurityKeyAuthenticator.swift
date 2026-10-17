@@ -1,6 +1,6 @@
 import AuthenticationServices
 import UIKit
-import WalletCore
+import WalletClient
 
 enum SecurityKeyError: LocalizedError {
     case busy
@@ -8,6 +8,7 @@ enum SecurityKeyError: LocalizedError {
     case unexpectedCredential
     case missingAttestation
     case unavailable
+    case noKeys
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +17,7 @@ enum SecurityKeyError: LocalizedError {
         case .unexpectedCredential: "The security key returned an unexpected credential type"
         case .missingAttestation: "The security key didn't return its public key"
         case .unavailable: "Security keys aren't configured for this build. See README → Enabling YubiKeys."
+        case .noKeys: "This wallet has no keys that can sign on this network"
         }
     }
 }
@@ -40,8 +42,13 @@ final class SecurityKeyAuthenticator: NSObject {
         self.relyingPartyID = relyingPartyID
     }
 
-    /// Creates a new P-256 credential on the key and returns its public key.
-    func register(displayName: String, excluding existingCredentialIDs: [Data]) async throws -> WebAuthnRegistration {
+    struct Registration {
+        let credentialID: Data
+        let publicKey: P256PublicKey
+    }
+
+    /// Creates a new P-256 credential on the key. The core reads its public key from the attestation object.
+    func register(displayName: String, excluding existingCredentialIDs: [Data]) async throws -> Registration {
         let provider = ASAuthorizationSecurityKeyPublicKeyCredentialProvider(relyingPartyIdentifier: relyingPartyID)
         let request = provider.createCredentialRegistrationRequest(
             challenge: Self.randomBytes(32),
@@ -62,11 +69,15 @@ final class SecurityKeyAuthenticator: NSObject {
             throw SecurityKeyError.unexpectedCredential
         }
         guard let attestationObject else { throw SecurityKeyError.missingAttestation }
-        return try WebAuthnRegistration(attestationObject: attestationObject, credentialID: credentialID)
+        let publicKey = try publicKeyFromAttestationObject(
+            attestationObject: attestationObject.hexPrefixed,
+            credentialId: credentialID.hexPrefixed
+        )
+        return Registration(credentialID: credentialID, publicKey: try P256PublicKey(publicKey))
     }
 
-    /// Asks the user to present one of the given keys and sign `challenge`.
-    func assert(challenge: Data, allowedCredentialIDs: [Data]) async throws -> WebAuthnAssertion {
+    /// Asks the user to present one of the given keys and sign `challenge`. The response goes to the core as-is.
+    func assert(challenge: Data, allowedCredentialIDs: [Data]) async throws -> Assertion {
         let provider = ASAuthorizationSecurityKeyPublicKeyCredentialProvider(relyingPartyIdentifier: relyingPartyID)
         let request = provider.createCredentialAssertionRequest(challenge: challenge)
         request.allowedCredentials = allowedCredentialIDs.map(Self.descriptor)
@@ -76,11 +87,11 @@ final class SecurityKeyAuthenticator: NSObject {
         guard case .assertion(let credentialID, let authenticatorData, let clientDataJSON, let signature) = try await perform(request) else {
             throw SecurityKeyError.unexpectedCredential
         }
-        return WebAuthnAssertion(
-            credentialID: credentialID,
-            authenticatorData: authenticatorData,
-            clientDataJSON: clientDataJSON,
-            signature: try P256Signature(der: signature)
+        return Assertion(
+            credentialId: credentialID.hexPrefixed,
+            authenticatorData: authenticatorData.hexPrefixed,
+            clientDataJson: clientDataJSON.hexPrefixed,
+            signature: signature.hexPrefixed
         )
     }
 
@@ -153,14 +164,14 @@ struct WalletSigner: WebAuthnSigner {
     let keys: [WalletKey]
     let authenticator: SecurityKeyAuthenticator?
 
-    func assert(challenge: Data, allowedCredentialIDs: [Data]) async throws -> WebAuthnAssertion {
+    func assert(challenge: Data, allowedCredentialIDs: [Data]) async throws -> Assertion {
         let allowed = keys.filter { allowedCredentialIDs.contains($0.credentialID) }
         let securityKeys = allowed.filter { $0.kind == .securityKey }
         if !securityKeys.isEmpty {
             guard let authenticator else { throw SecurityKeyError.unavailable }
             return try await authenticator.assert(challenge: challenge, allowedCredentialIDs: securityKeys.map(\.credentialID))
         }
-        guard let deviceKey = allowed.first else { throw SmartAccountError.noOwnerKeys }
+        guard let deviceKey = allowed.first else { throw SecurityKeyError.noKeys }
         return try await DeviceKeys.signer(for: deviceKey).assert(challenge: challenge, allowedCredentialIDs: [deviceKey.credentialID])
     }
 

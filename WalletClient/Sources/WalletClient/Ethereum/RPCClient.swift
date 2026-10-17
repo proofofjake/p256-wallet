@@ -1,4 +1,5 @@
 import Foundation
+import P256WalletCore
 
 public struct RPCError: Error, LocalizedError, Sendable {
     public let code: Int
@@ -7,17 +8,15 @@ public struct RPCError: Error, LocalizedError, Sendable {
 
     /// The node's message, with any embedded `Error(string)` revert payload decoded to its text.
     public var errorDescription: String? {
-        guard let range = message.range(of: "0x08c379a0"),
-              let payload = try? Data(hex: String(message[range.lowerBound...].prefix { $0.isHexDigit || $0 == "x" })),
-              let reason = try? ABIDecoder(payload.dropFirst(4)).string(at: 0) else { return message }
+        guard let range = message.range(of: "0x08c379a0") else { return message }
+        let payload = String(message[range.lowerBound...].prefix { $0.isHexDigit || $0 == "x" })
+        guard let reason = decodeRevertReason(data: payload) else { return message }
         return message[..<range.lowerBound].trimmingCharacters(in: .whitespaces) + " " + reason
     }
 
     /// Revert data from a failed `eth_call`, if the node included it.
-    public var revertData: Data? {
-        if let data = data?.dataValue { return data }
-        if let nested = data?["data"]?.dataValue { return nested }
-        return nil
+    public var revertData: String? {
+        data?.hexValue ?? data?["data"]?.hexValue
     }
 }
 
@@ -55,6 +54,10 @@ public struct RPCClient: Sendable {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let decoded = try? JSONDecoder().decode(JSONValue.self, from: data)
 
+        // Some providers (Pimlico's rate limiter, for one) send `error` as a bare string.
+        if let message = decoded?["error"]?.stringValue {
+            throw RPCError(code: status, message: message, data: nil)
+        }
         if let error = decoded?["error"], !error.isNull {
             let code = error["code"].flatMap { value -> Int? in
                 if case .number(let n) = value { return Int(n) }

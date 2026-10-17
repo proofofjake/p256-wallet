@@ -1,47 +1,25 @@
 import Foundation
-
-public struct Token: Sendable, Hashable, Codable, Identifiable {
-    public let address: Address
-    public let symbol: String
-    public let name: String
-    public let decimals: Int
-
-    public var id: Address { address }
-
-    public init(address: Address, symbol: String, name: String, decimals: Int) {
-        self.address = address
-        self.symbol = symbol
-        self.name = name
-        self.decimals = decimals
-    }
-}
+import P256WalletCore
 
 public struct TokenBalance: Sendable, Hashable, Identifiable {
     public let token: Token
-    public let balance: UInt256
+    /// Base units, as a hex quantity.
+    public let balance: String
 
-    public var id: Address { token.address }
-    public var formatted: String { Units.format(balance, decimals: token.decimals) }
+    public var id: String { token.address }
+    public var formatted: String {
+        (try? formatUnits(quantity: balance, decimals: token.decimals, maxFractionDigits: 6)) ?? balance
+    }
 
-    public init(token: Token, balance: UInt256) {
+    public init(token: Token, balance: String) {
         self.token = token
         self.balance = balance
     }
 }
 
-public enum ERC20 {
-    public static func transfer(to: Address, amount: UInt256) -> Data {
-        ABI.encodeCall("transfer(address,uint256)", [.address(to), .uint(amount)])
-    }
-
-    public static func balanceOf(_ owner: Address) -> Data {
-        ABI.encodeCall("balanceOf(address)", [.address(owner)])
-    }
-}
-
 /// Lists ERC-20 balances for an address.
 public protocol TokenBalanceProvider: Sendable {
-    func balances(of owner: Address) async throws -> [TokenBalance]
+    func balances(of owner: String) async throws -> [TokenBalance]
 }
 
 /// Uses Blockscout's v2 API, which indexes every token transfer and needs no API key.
@@ -54,8 +32,8 @@ public struct BlockscoutTokenProvider: TokenBalanceProvider {
         self.session = session
     }
 
-    public func balances(of owner: Address) async throws -> [TokenBalance] {
-        let url = baseURL.appending(path: "api/v2/addresses/\(owner.checksummed)/token-balances")
+    public func balances(of owner: String) async throws -> [TokenBalance] {
+        let url = baseURL.appending(path: "api/v2/addresses/\(owner)/token-balances")
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
         let (data, response) = try await session.data(for: request)
@@ -71,16 +49,17 @@ public struct BlockscoutTokenProvider: TokenBalanceProvider {
         return items.compactMap { item -> TokenBalance? in
             guard let tokenJSON = item["token"], tokenJSON["type"]?.stringValue == "ERC-20",
                   let addressText = tokenJSON["address_hash"]?.stringValue ?? tokenJSON["address"]?.stringValue,
-                  let address = Address(addressText.lowercased()),
-                  let decimals = tokenJSON["decimals"]?.uint256Value?.uint64Value,
-                  let balance = item["value"]?.uint256Value, !balance.isZero
+                  let address = try? checksumAddress(address: addressText.lowercased()),
+                  let decimalsText = tokenJSON["decimals"]?.quantityValue,
+                  let decimals = UInt8(decimalsText.dropFirst(2), radix: 16),
+                  let balance = item["value"]?.quantityValue, !balance.isZeroQuantity
             else { return nil }
             if let reputation = tokenJSON["reputation"]?.stringValue, reputation != "ok" { return nil }
             let token = Token(
                 address: address,
                 symbol: tokenJSON["symbol"]?.stringValue ?? "???",
                 name: tokenJSON["name"]?.stringValue ?? "Unknown token",
-                decimals: Int(decimals)
+                decimals: decimals
             )
             return TokenBalance(token: token, balance: balance)
         }
@@ -97,13 +76,14 @@ public struct KnownTokenProvider: TokenBalanceProvider {
         self.tokens = tokens
     }
 
-    public func balances(of owner: Address) async throws -> [TokenBalance] {
-        try await withThrowingTaskGroup(of: TokenBalance?.self) { group in
+    public func balances(of owner: String) async throws -> [TokenBalance] {
+        let call = try encodeFunctionCall(signature: "balanceOf(address)", arguments: [owner])
+        return try await withThrowingTaskGroup(of: TokenBalance?.self) { group in
             for token in tokens {
                 group.addTask {
-                    let result = try await client.call(to: token.address, data: ERC20.balanceOf(owner))
-                    let balance = try ABIDecoder(result).uint(at: 0)
-                    return balance.isZero ? nil : TokenBalance(token: token, balance: balance)
+                    let result = try await client.call(to: token.address, data: call.data)
+                    let balance = try abiDecode(types: ["uint256"], data: result)[0]
+                    return balance.isZeroQuantity ? nil : TokenBalance(token: token, balance: balance)
                 }
             }
             var balances = [TokenBalance]()
@@ -125,7 +105,7 @@ public struct CompositeTokenProvider: TokenBalanceProvider {
         self.fallback = fallback
     }
 
-    public func balances(of owner: Address) async throws -> [TokenBalance] {
+    public func balances(of owner: String) async throws -> [TokenBalance] {
         var balances: [TokenBalance]
         if let primary, let indexed = try? await primary.balances(of: owner) {
             balances = indexed

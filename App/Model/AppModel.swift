@@ -1,6 +1,6 @@
 import Foundation
 import Observation
-import WalletCore
+import WalletClient
 
 enum AppConfig {
     /// WebAuthn relying party ID: the domain in the associated-domains entitlement. Set in Config/Local.xcconfig.
@@ -24,7 +24,8 @@ enum AppConfig {
 @Observable
 final class AppModel {
     private(set) var wallet: WalletRecord?
-    private(set) var ethBalance: UInt256?
+    /// Wei, as a hex quantity.
+    private(set) var ethBalance: String?
     private(set) var tokens: [TokenBalance] = []
     private(set) var isDeployed: Bool?
     private(set) var isRefreshing = false
@@ -76,7 +77,7 @@ final class AppModel {
         let endpoints = endpoints(for: chain)
         return SmartAccount(
             address: wallet.address,
-            initialOwners: wallet.initialOwners,
+            initialOwners: wallet.initialOwners.map(\.hexPrefixed),
             chain: chain,
             bundlerURL: endpoints.bundler,
             paymasterURL: endpoints.paymaster
@@ -91,6 +92,12 @@ final class AppModel {
     var ownerKeys: [OwnerKey] { activeKeys.map(\.ownerKey) }
 
     var signer: WalletSigner { WalletSigner(keys: activeKeys, authenticator: authenticator) }
+
+    /// Tokens the review can name: the network's known tokens plus any the indexer found in this wallet.
+    var reviewTokens: [Token] {
+        let found = tokens.map(\.token).filter { token in !chain.knownTokens.contains { $0.address == token.address } }
+        return chain.knownTokens + found
+    }
 
     func endpoints(for chain: Chain) -> Endpoints {
         endpointOverrides[chain.id] ?? Endpoints()
@@ -108,9 +115,9 @@ final class AppModel {
     func refresh() async {
         guard let wallet else { return }
         let chain = self.chain
-        let client = EthereumClient(url: chain.rpcURL)
+        let client = EthereumClient(url: chain.rpc)
         let provider = CompositeTokenProvider(
-            primary: chain.blockscoutURL.map { BlockscoutTokenProvider(baseURL: $0) },
+            primary: chain.blockscout.map { BlockscoutTokenProvider(baseURL: $0) },
             fallback: KnownTokenProvider(client: client, tokens: chain.knownTokens)
         )
         isRefreshing = true
@@ -130,14 +137,14 @@ final class AppModel {
         }
     }
 
-    /// Computes the counterfactual address for `keys` (in order) and saves the wallet. Nothing goes onchain
-    /// until the first transaction, which deploys the account.
+    /// Has the core derive the counterfactual address for `keys` (in order) and saves the wallet. Nothing goes
+    /// onchain until the first transaction, which deploys the account.
     func createWallet(with keys: [NewKey]) async throws {
-        let owners = keys.map { CoinbaseSmartWallet.ownerBytes($0.publicKey) }
-        let address = try await CoinbaseSmartWallet.accountAddress(owners: owners, client: EthereumClient(url: chain.rpcURL))
+        let owners = try keys.map { try ownerBytes(key: $0.publicKey.core) }
+        let address = try accountAddress(initialOwners: owners)
         let record = WalletRecord(
             address: address,
-            initialOwners: owners,
+            initialOwners: try owners.map { try Data(hex: $0) },
             keys: keys.enumerated().map { WalletKey($1, ownerIndex: $0, addedOnChainID: nil) },
             createdAt: .now
         )

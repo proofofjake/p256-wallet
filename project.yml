@@ -7,8 +7,8 @@ options:
   developmentLanguage: en
 
 packages:
-  WalletCore:
-    path: WalletCore
+  WalletClient:
+    path: WalletClient
 
 targets:
   P256Wallet:
@@ -43,7 +43,7 @@ targets:
         CODE_SIGN_STYLE: Automatic
         ENABLE_PREVIEWS: YES
     dependencies:
-      - package: WalletCore
+      - package: WalletClient
     scheme:
       testTargets:
         - P256WalletUITests

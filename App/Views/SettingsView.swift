@@ -1,5 +1,5 @@
 import SwiftUI
-import WalletCore
+import WalletClient
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
@@ -23,7 +23,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    TextField(model.chain.defaultBundlerURL.absoluteString, text: $bundlerURL)
+                    TextField(model.chain.defaultBundlerUrl, text: $bundlerURL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
@@ -63,6 +63,7 @@ struct SettingsView: View {
                     LabeledContent("Security keys", value: model.authenticator == nil ? "Unavailable" : "Available")
                     LabeledContent("Account", value: "Coinbase Smart Wallet v1")
                     LabeledContent("EntryPoint", value: "v0.6")
+                    LabeledContent("Signing core", value: coreVersion())
                 }
             }
             .navigationTitle("Settings")
@@ -139,15 +140,11 @@ struct SettingsView: View {
             let ownerIndex = try await account.nextOwnerIndex()
             let newKey = NewKey(credentialID: registration.credentialID, publicKey: registration.publicKey, kind: .securityKey, name: name)
             addKeyRequest = TransactionRequest(
-                title: "Add key",
-                details: [
-                    .init(label: "Key", value: name),
-                    .init(label: "Owner index", value: "\(ownerIndex)"),
-                ],
-                calls: [CoinbaseSmartWallet.addOwnerPublicKeyCall(account: account.address, key: registration.publicKey)],
+                title: "Add \(name)",
+                calls: [try addOwnerCall(account: account.address, key: registration.publicKey.core)],
                 onConfirmed: { _ in
                     do {
-                        try model.recordAddedKey(newKey, ownerIndex: ownerIndex)
+                        try model.recordAddedKey(newKey, ownerIndex: Int(ownerIndex))
                     } catch {
                         addKeyError = error.localizedDescription
                     }
