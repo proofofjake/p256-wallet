@@ -1,18 +1,13 @@
 import SwiftUI
-import WalletCore
+import WalletClient
 
-/// What a screen wants executed, plus how to describe it for review.
+/// What a screen wants executed. How it's described for review comes from the core, not from the screen.
 struct TransactionRequest: Identifiable {
-    struct Detail: Hashable {
-        let label: String
-        let value: String
-        var monospaced = false
-    }
-
     let id = UUID()
     let title: String
-    let details: [Detail]
-    let calls: [CoinbaseSmartWallet.Call]
+    let calls: [Call]
+    /// Lets the review name the function and decode its arguments (used only if the selector matches).
+    var functionSignatures: [String] = []
     var onConfirmed: (@MainActor (UserOperationReceipt) -> Void)?
 }
 
@@ -34,15 +29,18 @@ struct TransactionSheet: View {
 
     @State private var phase: Phase = .preparing
     @State private var prepared: PreparedOperation?
-    @State private var balance: UInt256 = 0
+    @State private var balance = "0x0"
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
                     DetailRow(label: "Network", value: model.chain.name)
-                    ForEach(request.details, id: \.self) { detail in
-                        DetailRow(label: detail.label, value: detail.value, monospaced: detail.monospaced)
+                    if let review = prepared?.review {
+                        // Decoded by the core from the operation that will be signed.
+                        ForEach(Array(review.details.enumerated()), id: \.offset) { _, detail in
+                            DetailRow(label: detail.label, value: detail.value, monospaced: detail.monospaced)
+                        }
                     }
                 }
                 feeSection
@@ -63,14 +61,14 @@ struct TransactionSheet: View {
 
     @ViewBuilder
     private var feeSection: some View {
-        if let prepared {
+        if let review = prepared?.review {
             Section("Network fee") {
-                if prepared.isSponsored {
+                if review.sponsored {
                     Label("Sponsored by paymaster", systemImage: "gift")
                 } else {
-                    DetailRow(label: "Up to", value: "\(Units.format(prepared.maxGasCost, decimals: 18, maxFractionDigits: 8)) ETH")
+                    DetailRow(label: "Up to", value: "\(eth(review.maxGasCost)) ETH")
                 }
-                if prepared.deploysAccount {
+                if review.deploysAccount {
                     Label("Includes one-time account deployment", systemImage: "shippingbox")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -85,9 +83,9 @@ struct TransactionSheet: View {
         case .preparing:
             Section { HStack { ProgressView(); Text("Estimating…").foregroundStyle(.secondary) } }
         case .ready(let prepared):
-            if balance < prepared.requiredBalance {
+            if !canAfford(prepared) {
                 Section {
-                    ErrorText(message: "Not enough ETH. This needs up to \(Units.format(prepared.requiredBalance, decimals: 18, maxFractionDigits: 8)) ETH including gas; the wallet holds \(Units.format(balance, decimals: 18, maxFractionDigits: 8)).")
+                    ErrorText(message: "Not enough ETH. This needs up to \(eth(prepared.review.requiredBalance)) ETH including gas; the wallet holds \(eth(balance)).")
                 }
             }
         case .signing:
@@ -136,7 +134,7 @@ struct TransactionSheet: View {
                 .frame(maxWidth: .infinity)
             }
             .primaryAction()
-            .disabled(balance < prepared.requiredBalance)
+            .disabled(!canAfford(prepared))
         case .failed:
             Button("Try again") { Task { await prepare() } }
                 .primaryAction()
@@ -157,13 +155,26 @@ struct TransactionSheet: View {
         return false
     }
 
+    private func canAfford(_ prepared: PreparedOperation) -> Bool {
+        ((try? compareQuantities(a: balance, b: prepared.review.requiredBalance)) ?? -1) >= 0
+    }
+
+    private func eth(_ wei: String) -> String {
+        (try? formatUnits(quantity: wei, decimals: 18, maxFractionDigits: 8)) ?? wei
+    }
+
     private func prepare() async {
         guard let account = model.account else { return }
         phase = .preparing
         prepared = nil
         do {
             let signingIndex = model.ownerKeys.first?.ownerIndex ?? 0
-            async let preparedTask = account.prepare(calls: request.calls, signingOwnerIndex: signingIndex)
+            async let preparedTask = account.prepare(
+                calls: request.calls,
+                signingOwnerIndex: signingIndex,
+                tokens: model.reviewTokens,
+                functionSignatures: request.functionSignatures
+            )
             async let balanceTask = account.balance()
             let (op, balance) = try await (preparedTask, balanceTask)
             prepared = op

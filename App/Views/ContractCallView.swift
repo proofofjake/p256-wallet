@@ -1,5 +1,5 @@
 import SwiftUI
-import WalletCore
+import WalletClient
 
 /// Arbitrary contract interaction executed by the smart account (its `execute` function).
 struct ContractCallView: View {
@@ -77,27 +77,24 @@ struct ContractCallView: View {
     private func review() {
         error = nil
         do {
-            guard let address = Address(target) else { throw FunctionCallError.invalidArgument(type: "address", value: target) }
-            let wei = value.isEmpty ? UInt256.zero : Units.parse(value, decimals: 18)
-            guard let wei else { throw FunctionCallError.invalidArgument(type: "ETH value", value: value) }
-            let data: Data
-            var details: [TransactionRequest.Detail] = [.init(label: "Contract", value: address.short, monospaced: true)]
+            let address = try checksumAddress(address: target.trimmingCharacters(in: .whitespacesAndNewlines))
+            let wei = value.isEmpty ? "0x0" : try parseUnits(text: value, decimals: 18)
+            let data: String
+            var signatures: [String] = []
             switch mode {
             case .function:
                 let args = arguments.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
-                data = try FunctionCall.encode(signature: signature, arguments: args)
-                details.append(.init(label: "Function", value: try FunctionCall.parse(signature).name, monospaced: true))
+                data = try encodeFunctionCall(signature: signature, arguments: args).data
+                signatures = [signature]
             case .raw:
-                data = calldata.isEmpty ? Data() : try Data(hex: calldata)
-                details.append(data.isEmpty
-                    ? .init(label: "Selector", value: "None (plain transfer)")
-                    : .init(label: "Selector", value: data.prefix(4).hexPrefixed, monospaced: true))
+                let trimmed = calldata.trimmingCharacters(in: .whitespacesAndNewlines)
+                data = trimmed.isEmpty ? "0x" : try Data(hex: trimmed).hexPrefixed
             }
-            if !wei.isZero {
-                details.append(.init(label: "Value", value: "\(Units.format(wei, decimals: 18, maxFractionDigits: 18)) ETH"))
-            }
-            details.append(.init(label: "Calldata", value: "\(data.count) bytes"))
-            request = TransactionRequest(title: "Contract call", details: details, calls: [.init(target: address, value: wei, data: data)])
+            request = TransactionRequest(
+                title: "Contract call",
+                calls: [Call(target: address, value: wei, data: data)],
+                functionSignatures: signatures
+            )
         } catch {
             self.error = error.localizedDescription
         }

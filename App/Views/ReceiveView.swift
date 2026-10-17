@@ -1,5 +1,5 @@
 import SwiftUI
-import WalletCore
+import WalletClient
 
 struct ReceiveView: View {
     @Environment(AppModel.self) private var model
@@ -10,7 +10,7 @@ struct ReceiveView: View {
             if let address = model.wallet?.address {
                 ScrollView {
                     VStack(spacing: 24) {
-                        QRCodeView(text: address.checksummed)
+                        QRCodeView(text: address)
                             .frame(width: 240, height: 240)
                             .padding(16)
                             .background(.white, in: RoundedRectangle(cornerRadius: 16))
@@ -20,8 +20,8 @@ struct ReceiveView: View {
                             .padding(.horizontal)
 
                         HStack {
-                            CopyButton(text: address.checksummed)
-                            ShareLink(item: address.checksummed)
+                            CopyButton(text: address)
+                            ShareLink(item: address)
                         }
                         .buttonStyle(.bordered)
 

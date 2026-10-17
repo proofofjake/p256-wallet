@@ -1,5 +1,5 @@
 import SwiftUI
-import WalletCore
+import WalletClient
 
 struct HomeView: View {
     @Environment(AppModel.self) private var model
@@ -61,14 +61,14 @@ struct HomeView: View {
                 if let wallet = model.wallet {
                     HStack {
                         AddressText(address: wallet.address)
-                        CopyButton(text: wallet.address.checksummed, label: "")
+                        CopyButton(text: wallet.address, label: "")
                             .labelStyle(.iconOnly)
                             .buttonStyle(.borderless)
                     }
                     .foregroundStyle(.secondary)
                 }
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(model.ethBalance.map { Units.format($0, decimals: 18) } ?? "—")
+                    Text(ethBalanceText)
                         .contentTransition(.numericText())
                     Text("ETH").foregroundStyle(.secondary)
                 }
@@ -102,7 +102,7 @@ struct HomeView: View {
                 Label("Your account goes onchain with its first transaction. You can receive funds before then.", systemImage: "info.circle")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                if model.chain.isTestnet, model.ethBalance?.isZero == true {
+                if model.chain.isTestnet, model.ethBalance?.isZeroQuantity == true {
                     Link(destination: URL(string: "https://portal.cdp.coinbase.com/products/faucet")!) {
                         Label("Get Base Sepolia test ETH", systemImage: "drop")
                     }
@@ -111,9 +111,13 @@ struct HomeView: View {
         }
     }
 
+    private var ethBalanceText: String {
+        model.ethBalance.flatMap { try? formatUnits(quantity: $0, decimals: 18, maxFractionDigits: 6) } ?? "—"
+    }
+
     private var assets: some View {
         Section("Assets") {
-            AssetRow(symbol: "ETH", name: "Ether", amount: model.ethBalance.map { Units.format($0, decimals: 18) } ?? "—")
+            AssetRow(symbol: "ETH", name: "Ether", amount: ethBalanceText)
             ForEach(model.tokens) { token in
                 AssetRow(symbol: token.token.symbol, name: token.token.name, amount: token.formatted)
             }

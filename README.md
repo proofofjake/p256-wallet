@@ -12,11 +12,14 @@ owner is the YubiKey's public key. Base verifies P-256 signatures cheaply with t
 | **iOS app** | this repo | MVP. YubiKeys need a paid Apple Developer team plus an associated domain (see [Enabling YubiKeys](#enabling-yubikeys)); until then it runs with a Secure Enclave test key. |
 | **Browser extension** (Arc, Chrome, Brave, Edge) | [p256-wallet-extension](https://github.com/proofofjake/p256-wallet-extension) | Same features. Works with a YubiKey over USB-C today, no Apple account needed. |
 
-Both use the same contracts (Coinbase Smart Wallet v1, EntryPoint v0.6), bundler and token indexer, and their core
-logic is a line-for-line port (`WalletCore` in Swift, `src/core` in TypeScript), tested against the same reference
-values. A wallet created on one isn't automatically available on the other, because security key credentials are
-bound to a relying party ID. To share one wallet, give both the same domain as relying party ID before registering
-keys (see the extension's README).
+Both run the same signing core, [p256-wallet-core](https://github.com/proofofjake/p256-wallet-core): one Rust
+codebase, compiled to Swift here and to WebAssembly in the extension. It decides everything that gets signed, so it's
+the one thing to audit (see its README for the review guide). Each app pins it as the `core` submodule at a release
+and builds it from source.
+
+A wallet created on one app isn't automatically available on the other, because security key credentials are bound
+to a relying party ID. To share one wallet, give both the same domain as relying party ID before registering keys
+(see the extension's README).
 
 ```
 YubiKey ──(FIDO2 / WebAuthn, NFC or USB-C)──▶ iOS app ──(UserOperation)──▶ bundler ──▶ EntryPoint v0.6 ──▶ Coinbase Smart Wallet
@@ -27,13 +30,18 @@ YubiKey ──(FIDO2 / WebAuthn, NFC or USB-C)──▶ iOS app ──(UserOpera
 
 | Path | What |
 |---|---|
-| `WalletCore/` | Swift package, no dependencies. Keccak, ABI, UInt256, CBOR/COSE, WebAuthn → smart-wallet signature encoding, UserOperation v0.6, bundler/paymaster clients, token balances. Fully tested on macOS. |
+| `core/` | The signing core (git submodule, [p256-wallet-core](https://github.com/proofofjake/p256-wallet-core)). Builds user operations, reviews them, checks security key responses and produces signatures. Exposed to Swift as the `P256WalletCore` package. |
+| `WalletClient/` | Swift package around the core: JSON-RPC, bundler and paymaster clients, token balances, the prepare → sign → submit flow, and a local test signer. Decides nothing about what gets signed. |
 | `App/` | SwiftUI app: onboarding (primary + backup key), balances, send/receive, arbitrary contract calls, ERC-1271 message signing, add-key, settings. |
 | `UITests/` | Simulator smoke test against live Base Sepolia. |
 | `web/.well-known/apple-app-site-association` | Template for the domain that YubiKey support needs. |
 
 ### Design choices
 
+- **One signing core for both apps.** Everything that decides what gets signed is in
+  [p256-wallet-core](https://github.com/proofofjake/p256-wallet-core): it builds operations, derives the wallet
+  address locally, produces the review this app displays as-is, and only accepts a security key response that signed
+  that operation with a registered owner key. The Swift code here does networking, storage and UI.
 - **Account: [Coinbase Smart Wallet v1](https://github.com/coinbase/smart-wallet)** (audited, deployed at the same
   factory address `0x0BA5ED0c6AA8c49038F819E587E2633c4A9F428a` on Base and most L2s). It natively supports
   WebAuthn P-256 owners and multiple owners, so no custom contracts. The account address is the same on every chain.
@@ -51,10 +59,14 @@ YubiKey ──(FIDO2 / WebAuthn, NFC or USB-C)──▶ iOS app ──(UserOpera
 ## Run it
 
 ```sh
+git submodule update --init    # the signing core
+./core/scripts/build-swift.sh  # builds it for iOS, the Simulator and macOS (needs rustup; first build ~5 min)
 brew install xcodegen          # already installed on this machine
 xcodegen generate
 open P256Wallet.xcodeproj
 ```
+
+Rerun `./core/scripts/build-swift.sh` after moving the `core` submodule to a new release.
 
 `Config/Local.xcconfig` (gitignored) holds your team ID and bundle ID; copy `Config/Local.example.xcconfig` on a new machine.
 
@@ -92,17 +104,16 @@ endpoint (`https://api.developer.coinbase.com/rpc/v1/base-sepolia/<key>`), which
 
 ## Testing
 
+The signing core has its own unit and live tests (see its README), including proof against the deployed contracts
+that it produces signatures the account accepts. This repo tests the app side:
+
 ```sh
-cd WalletCore
-swift test                              # unit tests (offline)
-WALLETCORE_INTEGRATION=1 swift test     # + live Base Sepolia tests
+cd WalletClient
+swift test                            # offline: the local test signer's assertions pass the core's checks
+WALLET_INTEGRATION=1 swift test       # + live Base Sepolia: account state, bundler estimate, prepare and sign, tokens
 ```
 
-Unit test expectations come from Foundry's `cast` (ABI encodings, selectors, Keccak vectors) and from the
-deployed contracts. The integration tests need no funds: they run `EntryPoint.simulateValidation` with zero gas
-fees and check that the real Coinbase Smart Wallet accepts our WebAuthn signatures (and rejects a wrong key),
-that our UserOperation hash matches the EntryPoint's, and that a fully prepared operation validates within the
-gas the bundler estimated.
+The live tests need no funds: the bundler estimates against a temporary balance override.
 
 UI smoke test (Simulator, live network):
 

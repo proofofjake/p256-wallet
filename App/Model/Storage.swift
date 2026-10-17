@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 import Security
-import WalletCore
+import WalletClient
 
 enum KeychainError: LocalizedError {
     case status(OSStatus)
@@ -102,14 +102,14 @@ enum DeviceKeys {
             let key = try SecureEnclave.P256.Signing.PrivateKey()
             kind = .secureEnclave
             blob = key.dataRepresentation
-            publicKey = try P256PublicKey(raw: key.publicKey.rawRepresentation)
+            publicKey = P256PublicKey(raw: key.publicKey.rawRepresentation)
         } else {
             let key = P256.Signing.PrivateKey()
             kind = .software
             blob = key.rawRepresentation
-            publicKey = try P256PublicKey(raw: key.publicKey.rawRepresentation)
+            publicKey = P256PublicKey(raw: key.publicKey.rawRepresentation)
         }
-        let credentialID = Data(SHA256.hash(data: publicKey.raw))
+        let credentialID = Data(SHA256.hash(data: publicKey.x + publicKey.y))
         try Keychain.set(blob, for: account(credentialID))
         return NewKey(credentialID: credentialID, publicKey: publicKey, kind: kind, name: name)
     }
@@ -118,7 +118,7 @@ enum DeviceKeys {
         guard let blob = Keychain.get(account(key.credentialID)) else { throw DeviceKeyError.missing }
         let kind = key.kind
         // Capture the serialized key (Sendable) and rebuild it per signature.
-        return LocalWebAuthnSigner(credentialID: key.credentialID, publicKey: key.publicKey) { message in
+        return LocalWebAuthnSigner(credentialID: key.credentialID) { message in
             if kind == .secureEnclave {
                 return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob).signature(for: message).derRepresentation
             }

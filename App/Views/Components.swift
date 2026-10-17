@@ -1,14 +1,15 @@
 import CoreImage.CIFilterBuiltins
 import SwiftUI
 import UIKit
-import WalletCore
+import WalletClient
 
 struct AddressText: View {
-    let address: Address
+    /// Checksummed.
+    let address: String
     var short = true
 
     var body: some View {
-        Text(short ? address.short : address.checksummed)
+        Text(short ? shortAddress(address) : address)
             .font(.system(.body, design: .monospaced))
             .textSelection(.enabled)
     }

@@ -1,4 +1,5 @@
 import Foundation
+import P256WalletCore
 
 /// Untyped JSON, for JSON-RPC params and loosely specified API responses.
 public enum JSONValue: Sendable, Equatable, Codable {
@@ -38,6 +39,11 @@ public enum JSONValue: Sendable, Equatable, Codable {
         }
     }
 
+    /// Converts any `Encodable` (such as the core's `UserOperation`) into JSON params.
+    public init(encoding value: some Encodable) throws {
+        self = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(value))
+    }
+
     public subscript(key: String) -> JSONValue? {
         if case .object(let object) = self { return object[key] }
         return nil
@@ -60,18 +66,20 @@ public enum JSONValue: Sendable, Equatable, Codable {
 
     public var isNull: Bool { self == .null }
 
-    /// Accepts hex quantity strings, decimal strings, or JSON numbers.
-    public var uint256Value: UInt256? {
+    /// A number as a normalized hex quantity. Accepts hex quantity strings, decimal strings, or JSON numbers.
+    public var quantityValue: String? {
         switch self {
-        case .string(let text): return UInt256(parsing: text)
-        case .number(let value) where value >= 0 && value == value.rounded() && value < 9e15: return UInt256(UInt64(value))
+        case .string(let text): return try? parseQuantity(text: text)
+        case .number(let value) where value >= 0 && value == value.rounded() && value < 9e15:
+            return try? parseQuantity(text: String(UInt64(value)))
         default: return nil
         }
     }
 
-    public var dataValue: Data? {
-        guard let text = stringValue else { return nil }
-        return try? Data(hex: text)
+    /// A `0x` hex string, validated.
+    public var hexValue: String? {
+        guard let text = stringValue, text.hasPrefix("0x"), (try? Data(hex: text)) != nil else { return nil }
+        return text
     }
 }
 

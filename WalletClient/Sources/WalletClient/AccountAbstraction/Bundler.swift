@@ -1,42 +1,32 @@
 import Foundation
-
-public struct GasEstimate: Sendable, Equatable {
-    public let preVerificationGas: UInt256
-    public let verificationGasLimit: UInt256
-    public let callGasLimit: UInt256
-}
-
-public struct GasPrice: Sendable, Equatable {
-    public let maxFeePerGas: UInt256
-    public let maxPriorityFeePerGas: UInt256
-}
+import P256WalletCore
 
 public struct UserOperationReceipt: Sendable, Equatable {
     public let userOpHash: String
     public let success: Bool
     public let reason: String?
-    public let actualGasCost: UInt256?
+    public let actualGasCost: String?
     public let transactionHash: String?
 }
 
-/// ERC-4337 bundler JSON-RPC.
+/// ERC-4337 bundler JSON-RPC. The core's `UserOperation` encodes to exactly the JSON bundlers expect.
 public struct BundlerClient: Sendable {
     public let rpc: RPCClient
-    public let entryPoint: Address
+    public let entryPoint: String
 
-    public init(url: URL, entryPoint: Address = UserOperation.entryPointV06) {
+    public init(url: URL, entryPoint: String = entryPointAddress()) {
         self.rpc = RPCClient(url: url)
         self.entryPoint = entryPoint
     }
 
     /// `stateOverride` (supported by Pimlico, Alchemy and others) lets estimation run before the account is funded.
     public func estimateGas(_ op: UserOperation, stateOverride: JSONValue? = nil) async throws -> GasEstimate {
-        var params: [JSONValue] = [op.json, .string(entryPoint.checksummed)]
+        var params: [JSONValue] = [try JSONValue(encoding: op), .string(entryPoint)]
         if let stateOverride { params.append(stateOverride) }
         let result = try await rpc.send("eth_estimateUserOperationGas", params)
-        guard let pvg = result["preVerificationGas"]?.uint256Value,
-              let vgl = result["verificationGasLimit"]?.uint256Value,
-              let cgl = result["callGasLimit"]?.uint256Value else {
+        guard let pvg = result["preVerificationGas"]?.quantityValue,
+              let vgl = result["verificationGasLimit"]?.quantityValue,
+              let cgl = result["callGasLimit"]?.quantityValue else {
             throw TransportError.malformedResponse("eth_estimateUserOperationGas")
         }
         return GasEstimate(preVerificationGas: pvg, verificationGasLimit: vgl, callGasLimit: cgl)
@@ -44,7 +34,7 @@ public struct BundlerClient: Sendable {
 
     /// Returns the user operation hash.
     public func send(_ op: UserOperation) async throws -> String {
-        let result = try await rpc.send("eth_sendUserOperation", [op.json, .string(entryPoint.checksummed)])
+        let result = try await rpc.send("eth_sendUserOperation", [try JSONValue(encoding: op), .string(entryPoint)])
         guard let hash = result.stringValue else { throw TransportError.malformedResponse("eth_sendUserOperation") }
         return hash
     }
@@ -56,7 +46,7 @@ public struct BundlerClient: Sendable {
             userOpHash: userOpHash,
             success: result["success"]?.boolValue ?? false,
             reason: result["reason"]?.stringValue,
-            actualGasCost: result["actualGasCost"]?.uint256Value,
+            actualGasCost: result["actualGasCost"]?.quantityValue,
             transactionHash: result["receipt"]?["transactionHash"]?.stringValue
         )
     }
@@ -75,8 +65,8 @@ public struct BundlerClient: Sendable {
     public func pimlicoGasPrice() async -> GasPrice? {
         guard let result = try? await rpc.send("pimlico_getUserOperationGasPrice"),
               let fast = result["fast"],
-              let maxFee = fast["maxFeePerGas"]?.uint256Value,
-              let priority = fast["maxPriorityFeePerGas"]?.uint256Value else { return nil }
+              let maxFee = fast["maxFeePerGas"]?.quantityValue,
+              let priority = fast["maxPriorityFeePerGas"]?.quantityValue else { return nil }
         return GasPrice(maxFeePerGas: maxFee, maxPriorityFeePerGas: priority)
     }
 }
@@ -95,30 +85,30 @@ public enum BundlerError: Error, LocalizedError, Equatable {
 /// Coinbase Developer Platform, Pimlico, Alchemy and others.
 public struct PaymasterClient: Sendable {
     public let rpc: RPCClient
-    public let entryPoint: Address
+    public let entryPoint: String
     public let context: JSONValue
 
-    public init(url: URL, entryPoint: Address = UserOperation.entryPointV06, context: JSONValue = .object([:])) {
+    public init(url: URL, entryPoint: String = entryPointAddress(), context: JSONValue = .object([:])) {
         self.rpc = RPCClient(url: url)
         self.entryPoint = entryPoint
         self.context = context
     }
 
     /// Placeholder `paymasterAndData` for gas estimation.
-    public func stubData(for op: UserOperation, chainID: UInt64) async throws -> Data {
+    public func stubData(for op: UserOperation, chainID: UInt64) async throws -> String {
         try await paymasterAndData("pm_getPaymasterStubData", op, chainID)
     }
 
     /// Final, signed `paymasterAndData`. Call after gas limits are set; they are covered by the sponsorship.
-    public func data(for op: UserOperation, chainID: UInt64) async throws -> Data {
+    public func data(for op: UserOperation, chainID: UInt64) async throws -> String {
         try await paymasterAndData("pm_getPaymasterData", op, chainID)
     }
 
-    private func paymasterAndData(_ method: String, _ op: UserOperation, _ chainID: UInt64) async throws -> Data {
+    private func paymasterAndData(_ method: String, _ op: UserOperation, _ chainID: UInt64) async throws -> String {
         let result = try await rpc.send(method, [
-            op.json, .string(entryPoint.checksummed), .string(UInt256(chainID).hexQuantity), context,
+            try JSONValue(encoding: op), .string(entryPoint), .string("0x" + String(chainID, radix: 16)), context,
         ])
-        guard let data = result["paymasterAndData"]?.dataValue else { throw TransportError.malformedResponse(method) }
+        guard let data = result["paymasterAndData"]?.hexValue else { throw TransportError.malformedResponse(method) }
         return data
     }
 }

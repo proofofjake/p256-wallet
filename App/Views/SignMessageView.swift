@@ -1,12 +1,12 @@
 import SwiftUI
-import WalletCore
+import WalletClient
 
 /// Signs an EIP-191 message as the smart account. Dapps verify it through ERC-1271 (`isValidSignature`),
 /// or ERC-6492 before the account is deployed.
 struct SignMessageView: View {
     @Environment(AppModel.self) private var model
     @State private var message = ""
-    @State private var result: SignedMessage?
+    @State private var result: MessageSignature?
     @State private var isSigning = false
     @State private var error: String?
 
@@ -18,11 +18,11 @@ struct SignMessageView: View {
             }
             if let result {
                 Section("Signature") {
-                    Text(result.signature.hexPrefixed)
+                    Text(result.signature)
                         .font(.system(.caption, design: .monospaced))
                         .textSelection(.enabled)
                         .lineLimit(6)
-                    CopyButton(text: result.signature.hexPrefixed, label: "Copy signature")
+                    CopyButton(text: result.signature, label: "Copy signature")
                     switch result.verifiedOnchain {
                     case true?:
                         Label("Verified by the account's isValidSignature", systemImage: "checkmark.seal.fill").foregroundStyle(.green)
@@ -64,7 +64,7 @@ struct SignMessageView: View {
         error = nil
         result = nil
         do {
-            result = try await account.signPersonalMessage(Data(message.utf8), signer: model.signer, owners: model.ownerKeys)
+            result = try await account.signPersonalMessage(message, signer: model.signer, owners: model.ownerKeys)
         } catch SecurityKeyError.cancelled {
         } catch {
             self.error = error.localizedDescription

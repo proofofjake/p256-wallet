@@ -1,5 +1,5 @@
 import SwiftUI
-import WalletCore
+import WalletClient
 
 struct OnboardingView: View {
     @Environment(AppModel.self) private var model

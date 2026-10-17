@@ -1,5 +1,5 @@
 import Foundation
-import WalletCore
+import WalletClient
 
 enum KeyKind: String, Codable, Sendable {
     /// A FIDO2 security key such as a YubiKey. The private key never leaves the hardware.
@@ -24,6 +24,27 @@ enum KeyKind: String, Codable, Sendable {
         case .software: "hammer"
         }
     }
+}
+
+/// Uncompressed P-256 public key coordinates. Stored as in earlier versions, so existing wallet records still load.
+struct P256PublicKey: Codable, Hashable, Sendable {
+    let x: Data
+    let y: Data
+
+    /// 64 bytes `x || y` (CryptoKit `rawRepresentation`).
+    init(raw: Data) {
+        precondition(raw.count == 64, "P-256 raw public key must be 64 bytes")
+        x = raw.prefix(32)
+        y = raw.suffix(32)
+    }
+
+    init(_ key: PublicKey) throws {
+        x = try Data(hex: key.x)
+        y = try Data(hex: key.y)
+    }
+
+    /// The core's form.
+    var core: PublicKey { PublicKey(x: x.hexPrefixed, y: y.hexPrefixed) }
 }
 
 /// A key that has been registered but not yet assigned an owner index.
@@ -60,14 +81,15 @@ struct WalletKey: Codable, Hashable, Identifiable, Sendable {
     }
 
     var ownerKey: OwnerKey {
-        OwnerKey(credentialID: credentialID, ownerIndex: ownerIndex, publicKey: publicKey)
+        OwnerKey(credentialId: credentialID.hexPrefixed, ownerIndex: UInt32(ownerIndex), publicKey: publicKey.core)
     }
 }
 
 /// Everything needed to use the wallet. None of it is secret (security key private keys stay on the key),
 /// but losing it means losing the credential IDs the keys need to sign, so it can be exported.
 struct WalletRecord: Codable, Sendable {
-    let address: Address
+    /// Checksummed. Derived by the core from `initialOwners`, which it re-checks before every signature.
+    let address: String
     /// Owner bytes passed to the factory at creation. They fix the address and the deployment `initCode`.
     let initialOwners: [Data]
     var keys: [WalletKey]
