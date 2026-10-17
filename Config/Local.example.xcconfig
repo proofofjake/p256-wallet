@@ -1,0 +1,11 @@
+// Copy to Local.xcconfig and fill in.
+
+DEVELOPMENT_TEAM = ABCDE12345
+PRODUCT_BUNDLE_IDENTIFIER = com.yourname.p256wallet
+
+// YubiKey support needs all three of:
+//   1. A paid Apple Developer Program team (free Personal Teams can't use Associated Domains)
+//   2. A domain serving https://<domain>/.well-known/apple-app-site-association (see web/)
+//   3. These two lines:
+// RELYING_PARTY_ID = wallet.example.com
+// CODE_SIGN_ENTITLEMENTS = App/P256Wallet.entitlements

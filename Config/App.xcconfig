@@ -1,0 +1,13 @@
+// Shared build settings. Account-specific values go in Local.xcconfig (gitignored),
+// which is included last so it overrides anything here.
+
+PRODUCT_BUNDLE_IDENTIFIER = com.example.p256wallet
+DEVELOPMENT_TEAM =
+
+// WebAuthn relying party ID for security keys. Empty disables YubiKey support.
+RELYING_PARTY_ID =
+
+// Set to App/P256Wallet.entitlements once on a paid team (adds the Associated Domains entitlement).
+CODE_SIGN_ENTITLEMENTS =
+
+#include? "Local.xcconfig"
