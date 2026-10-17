@@ -5,6 +5,19 @@ A lightweight iOS wallet for Base where a **YubiKey signs every transaction**.
 YubiKeys sign with P-256 (secp256r1), not Ethereum's secp256k1, so the wallet is a smart account whose
 owner is the YubiKey's public key. Base verifies P-256 signatures cheaply with the RIP-7212 precompile.
 
+## Platforms
+
+| | Repo | Status |
+|---|---|---|
+| **iOS app** | this repo | MVP. YubiKeys need a paid Apple Developer team plus an associated domain (see [Enabling YubiKeys](#enabling-yubikeys)); until then it runs with a Secure Enclave test key. |
+| **Browser extension** (Arc, Chrome, Brave, Edge) | [p256-wallet-extension](https://github.com/proofofjake/p256-wallet-extension) | Same features. Works with a YubiKey over USB-C today, no Apple account needed. |
+
+Both use the same contracts (Coinbase Smart Wallet v1, EntryPoint v0.6), bundler and token indexer, and their core
+logic is a line-for-line port (`WalletCore` in Swift, `src/core` in TypeScript), tested against the same reference
+values. A wallet created on one isn't automatically available on the other, because security key credentials are
+bound to a relying party ID. To share one wallet, give both the same domain as relying party ID before registering
+keys (see the extension's README).
+
 ```
 YubiKey ──(FIDO2 / WebAuthn, NFC or USB-C)──▶ iOS app ──(UserOperation)──▶ bundler ──▶ EntryPoint v0.6 ──▶ Coinbase Smart Wallet
   P-256 key never leaves the key              builds + signs ops                                        verifies WebAuthn sig via RIP-7212
