@@ -53,6 +53,12 @@ struct NewKey: Sendable {
     let publicKey: P256PublicKey
     let kind: KeyKind
     let name: String
+    /// The WebAuthn relying party ID the key was registered under.
+    let relyingPartyID: String
+    /// The owner chose to protect the key with its PIN, so every signature must be PIN-verified.
+    var requirePIN = false
+    /// The key itself refuses to sign without its PIN (`credProtect`), whatever any app asks for.
+    var pinEnforcedByKey = false
 }
 
 struct WalletKey: Codable, Hashable, Identifiable, Sendable {
@@ -66,6 +72,10 @@ struct WalletKey: Codable, Hashable, Identifiable, Sendable {
     /// Owners the account was created with exist on every chain. Owners added later only exist on the chain
     /// where the `addOwnerPublicKey` transaction ran.
     let addedOnChainID: UInt64?
+    /// Recorded at registration. Nil in records from before it was stored; see `rpID`.
+    let relyingPartyID: String?
+    let requirePIN: Bool
+    let pinEnforcedByKey: Bool
 
     init(_ key: NewKey, ownerIndex: Int, addedOnChainID: UInt64?) {
         credentialID = key.credentialID
@@ -74,14 +84,43 @@ struct WalletKey: Codable, Hashable, Identifiable, Sendable {
         kind = key.kind
         self.ownerIndex = ownerIndex
         self.addedOnChainID = addedOnChainID
+        relyingPartyID = key.relyingPartyID
+        requirePIN = key.requirePIN
+        pinEnforcedByKey = key.pinEnforcedByKey
+    }
+
+    /// Older records don't have the PIN or relying party fields.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        credentialID = try container.decode(Data.self, forKey: .credentialID)
+        publicKey = try container.decode(P256PublicKey.self, forKey: .publicKey)
+        name = try container.decode(String.self, forKey: .name)
+        kind = try container.decode(KeyKind.self, forKey: .kind)
+        ownerIndex = try container.decode(Int.self, forKey: .ownerIndex)
+        addedOnChainID = try container.decodeIfPresent(UInt64.self, forKey: .addedOnChainID)
+        relyingPartyID = try container.decodeIfPresent(String.self, forKey: .relyingPartyID)
+        requirePIN = try container.decodeIfPresent(Bool.self, forKey: .requirePIN) ?? false
+        pinEnforcedByKey = try container.decodeIfPresent(Bool.self, forKey: .pinEnforcedByKey) ?? false
     }
 
     func isOwner(on chain: Chain) -> Bool {
         addedOnChainID == nil || addedOnChainID == chain.id
     }
 
+    /// The relying party the key answers for: as registered, or for older records the app's configured domain
+    /// (security keys) or the local test signer's (device keys).
+    var rpID: String {
+        relyingPartyID ?? (kind == .securityKey ? AppConfig.relyingPartyID : LocalWebAuthnSigner.relyingPartyID)
+    }
+
     var ownerKey: OwnerKey {
-        OwnerKey(credentialId: credentialID.hexPrefixed, ownerIndex: UInt32(ownerIndex), publicKey: publicKey.core)
+        OwnerKey(
+            credentialId: credentialID.hexPrefixed,
+            ownerIndex: UInt32(ownerIndex),
+            publicKey: publicKey.core,
+            rpId: rpID,
+            requireUserVerification: requirePIN
+        )
     }
 }
 

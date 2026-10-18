@@ -18,7 +18,9 @@ struct BaseSepoliaIntegrationTests {
         let owner = OwnerKey(
             credentialId: signer.credentialID.hexPrefixed,
             ownerIndex: 0,
-            publicKey: PublicKey(x: raw.prefix(32).hexPrefixed, y: raw.suffix(32).hexPrefixed)
+            publicKey: PublicKey(x: raw.prefix(32).hexPrefixed, y: raw.suffix(32).hexPrefixed),
+            rpId: LocalWebAuthnSigner.relyingPartyID,
+            requireUserVerification: false
         )
         let initialOwners = [try ownerBytes(key: owner.publicKey)]
         let account = SmartAccount(address: try accountAddress(initialOwners: initialOwners), initialOwners: initialOwners, chain: chain)
@@ -41,7 +43,8 @@ struct BaseSepoliaIntegrationTests {
         #expect(!prepared.review.sponsored)
         // Deployment dominates verification gas for a first operation.
         #expect(try compareQuantities(a: prepared.userOperation.verificationGasLimit, b: "0x30d40") == 1)
-        #expect(prepared.review.details.first?.value == "0.000000000000000001 ETH")
+        #expect(prepared.review.details.first { $0.label == "Send" }?.value == "0.000000000000000001 ETH")
+        #expect(prepared.review.details.first?.value == account.address, "the review starts with the sending wallet")
         #expect(try compareQuantities(a: prepared.review.requiredBalance, b: prepared.review.maxGasCost) == 1)
 
         let signed = try await account.sign(prepared, signer: signer, owners: owners)

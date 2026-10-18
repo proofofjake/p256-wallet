@@ -74,11 +74,23 @@ struct DetailRow: View {
     var monospaced = false
 
     var body: some View {
-        LabeledContent(label) {
-            Text(value)
-                .font(monospaced ? .system(.body, design: .monospaced) : .body)
-                .multilineTextAlignment(.trailing)
-                .textSelection(.enabled)
+        if monospaced && value.count > 24 {
+            // Addresses and keys get the full width, so a 42-character address fits on one line instead of
+            // wrapping with an inserted hyphen.
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label)
+                Text(value)
+                    .font(.system(.footnote, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        } else {
+            LabeledContent(label) {
+                Text(value)
+                    .font(monospaced ? .system(.body, design: .monospaced) : .body)
+                    .multilineTextAlignment(.trailing)
+                    .textSelection(.enabled)
+            }
         }
     }
 }

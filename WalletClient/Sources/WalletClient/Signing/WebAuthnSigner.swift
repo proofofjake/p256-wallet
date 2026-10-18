@@ -5,8 +5,9 @@ import P256WalletCore
 /// Anything that can produce WebAuthn assertions for one or more credentials: the security key prompt, or a local
 /// test key. Assertions go to the core unmodified, which checks them.
 public protocol WebAuthnSigner: Sendable {
-    /// Signs `challenge`, restricted to the given credential IDs. Implementations may block on user interaction.
-    func assert(challenge: Data, allowedCredentialIDs: [Data]) async throws -> Assertion
+    /// Signs `challenge`, restricted to the given credential IDs. `requireUserVerification` asks for the key's PIN
+    /// (set when one of the allowed keys was registered with one). Implementations may block on user interaction.
+    func assert(challenge: Data, allowedCredentialIDs: [Data], requireUserVerification: Bool) async throws -> Assertion
 }
 
 /// A Secure Enclave or software P-256 key that answers like a security key.
@@ -14,6 +15,8 @@ public protocol WebAuthnSigner: Sendable {
 /// The smart wallet only checks the challenge, the `type` field, the user-present flag and the signature, so a local
 /// key that formats its output like a security key is indistinguishable onchain. For development and tests.
 public struct LocalWebAuthnSigner: WebAuthnSigner {
+    /// The relying party local keys answer for. Record it as the key's `rpId`.
+    public static let relyingPartyID = "p256wallet.dev"
     public static let origin = "https://p256wallet.dev"
 
     public let credentialID: Data
@@ -32,8 +35,9 @@ public struct LocalWebAuthnSigner: WebAuthnSigner {
         }
     }
 
-    public func assert(challenge: Data, allowedCredentialIDs: [Data]) async throws -> Assertion {
-        let rpIDHash = Data(SHA256.hash(data: Data("p256wallet.dev".utf8)))
+    /// Reports user verification: the device keys are behind the phone's own unlock.
+    public func assert(challenge: Data, allowedCredentialIDs: [Data], requireUserVerification: Bool) async throws -> Assertion {
+        let rpIDHash = Data(SHA256.hash(data: Data(Self.relyingPartyID.utf8)))
         let flags: UInt8 = 0x05 // user present + user verified
         let authenticatorData = rpIDHash + Data([flags, 0, 0, 0, 0])
         let clientDataJSON = Data(

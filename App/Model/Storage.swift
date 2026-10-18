@@ -111,7 +111,13 @@ enum DeviceKeys {
         }
         let credentialID = Data(SHA256.hash(data: publicKey.x + publicKey.y))
         try Keychain.set(blob, for: account(credentialID))
-        return NewKey(credentialID: credentialID, publicKey: publicKey, kind: kind, name: name)
+        return NewKey(
+            credentialID: credentialID,
+            publicKey: publicKey,
+            kind: kind,
+            name: name,
+            relyingPartyID: LocalWebAuthnSigner.relyingPartyID
+        )
     }
 
     static func signer(for key: WalletKey) throws -> LocalWebAuthnSigner {

@@ -117,9 +117,16 @@ public struct SmartAccount: Sendable {
     public func sign(_ prepared: PreparedOperation, signer: WebAuthnSigner, owners: [OwnerKey]) async throws -> UserOperation {
         let assertion = try await signer.assert(
             challenge: try Data(hex: prepared.review.hash),
-            allowedCredentialIDs: try owners.map { try Data(hex: $0.credentialId) }
+            allowedCredentialIDs: try owners.map { try Data(hex: $0.credentialId) },
+            requireUserVerification: owners.contains { $0.requireUserVerification }
         )
-        return try signUserOperation(op: prepared.userOperation, chainId: chain.id, assertion: assertion, owners: owners)
+        return try signUserOperation(
+            op: prepared.userOperation,
+            chainId: chain.id,
+            assertion: assertion,
+            owners: owners,
+            initialOwners: initialOwners
+        )
     }
 
     public func submit(_ op: UserOperation) async throws -> String {
@@ -131,7 +138,8 @@ public struct SmartAccount: Sendable {
         let challenge = try messageChallenge(message: message, account: address, chainId: chain.id)
         let assertion = try await signer.assert(
             challenge: try Data(hex: challenge.challenge),
-            allowedCredentialIDs: try owners.map { try Data(hex: $0.credentialId) }
+            allowedCredentialIDs: try owners.map { try Data(hex: $0.credentialId) },
+            requireUserVerification: owners.contains { $0.requireUserVerification }
         )
         let deployed = try await isDeployed()
         let signed = try signMessage(
