@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var addKeyError: String?
     @State private var isRegistering = false
     @State private var confirmRemove = false
+    @State private var newKeyRequiresPIN = false
 
     var body: some View {
         @Bindable var model = model
@@ -92,7 +93,7 @@ struct SettingsView: View {
                     Image(systemName: key.kind.symbol).foregroundStyle(.tint).frame(width: 28)
                     VStack(alignment: .leading) {
                         Text(key.name)
-                        Text("\(key.kind.label) · owner #\(key.ownerIndex)")
+                        Text("\(key.kind.label) · owner #\(key.ownerIndex)\(pinLabel(key))")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -103,6 +104,7 @@ struct SettingsView: View {
                 }
             }
             if model.authenticator != nil {
+                PINToggle(requirePIN: $newKeyRequiresPIN)
                 Button {
                     Task { await addSecurityKey() }
                 } label: {
@@ -122,6 +124,11 @@ struct SettingsView: View {
         }
     }
 
+    private func pinLabel(_ key: WalletKey) -> String {
+        guard key.requirePIN else { return "" }
+        return key.pinEnforcedByKey ? " · PIN (enforced by the key)" : " · PIN required"
+    }
+
     private func loadEndpoints() {
         let endpoints = model.endpoints(for: model.chain)
         bundlerURL = endpoints.bundlerURL
@@ -136,12 +143,15 @@ struct SettingsView: View {
         addKeyError = nil
         do {
             let name = "Key \(wallet.keys.count + 1)"
-            let registration = try await authenticator.register(displayName: name, excluding: wallet.keys.map(\.credentialID))
+            let newKey = try await authenticator.register(
+                displayName: name,
+                excluding: wallet.keys.map(\.credentialID),
+                requirePIN: newKeyRequiresPIN
+            )
             let ownerIndex = try await account.nextOwnerIndex()
-            let newKey = NewKey(credentialID: registration.credentialID, publicKey: registration.publicKey, kind: .securityKey, name: name)
             addKeyRequest = TransactionRequest(
                 title: "Add \(name)",
-                calls: [try addOwnerCall(account: account.address, key: registration.publicKey.core)],
+                calls: [try addOwnerCall(account: account.address, key: newKey.publicKey.core)],
                 onConfirmed: { _ in
                     do {
                         try model.recordAddedKey(newKey, ownerIndex: Int(ownerIndex))

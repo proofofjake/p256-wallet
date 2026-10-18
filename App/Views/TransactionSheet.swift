@@ -34,10 +34,9 @@ struct TransactionSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    DetailRow(label: "Network", value: model.chain.name)
-                    if let review = prepared?.review {
-                        // Decoded by the core from the operation that will be signed.
+                if let review = prepared?.review {
+                    Section {
+                        // Decoded by the core from the operation that will be signed, wallet and network included.
                         ForEach(Array(review.details.enumerated()), id: \.offset) { _, detail in
                             DetailRow(label: detail.label, value: detail.value, monospaced: detail.monospaced)
                         }
@@ -64,7 +63,10 @@ struct TransactionSheet: View {
         if let review = prepared?.review {
             Section("Network fee") {
                 if review.sponsored {
-                    Label("Sponsored by paymaster", systemImage: "gift")
+                    Label("Sponsored", systemImage: "gift")
+                } else if review.paymaster != nil {
+                    // The details above name the paymaster and warn that it may charge tokens.
+                    Label("Paid by the paymaster above", systemImage: "exclamationmark.triangle")
                 } else {
                     DetailRow(label: "Up to", value: "\(eth(review.maxGasCost)) ETH")
                 }

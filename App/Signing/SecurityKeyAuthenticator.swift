@@ -42,13 +42,9 @@ final class SecurityKeyAuthenticator: NSObject {
         self.relyingPartyID = relyingPartyID
     }
 
-    struct Registration {
-        let credentialID: Data
-        let publicKey: P256PublicKey
-    }
-
-    /// Creates a new P-256 credential on the key. The core reads its public key from the attestation object.
-    func register(displayName: String, excluding existingCredentialIDs: [Data]) async throws -> Registration {
+    /// Creates a new P-256 credential on the key and has the core check it: the right relying party, a hardware key
+    /// (not a synced passkey), and a verified PIN when `requirePIN` is set.
+    func register(displayName: String, excluding existingCredentialIDs: [Data], requirePIN: Bool) async throws -> NewKey {
         let provider = ASAuthorizationSecurityKeyPublicKeyCredentialProvider(relyingPartyIdentifier: relyingPartyID)
         let request = provider.createCredentialRegistrationRequest(
             challenge: Self.randomBytes(32),
@@ -60,7 +56,9 @@ final class SecurityKeyAuthenticator: NSObject {
         // Non-discoverable: doesn't use one of the key's limited resident slots or force PIN setup.
         // The credential ID is stored in the wallet record instead.
         request.residentKeyPreference = .discouraged
-        request.userVerificationPreference = .preferred
+        // With a PIN chosen, the key must verify it now and on every signature. iOS has no credProtect option, so
+        // here it's enforced by the core rather than by the key itself.
+        request.userVerificationPreference = requirePIN ? .required : .preferred
         request.attestationPreference = .none
         // Stops the same physical key being registered twice (e.g. as its own backup).
         request.excludedCredentials = existingCredentialIDs.map(Self.descriptor)
@@ -69,20 +67,30 @@ final class SecurityKeyAuthenticator: NSObject {
             throw SecurityKeyError.unexpectedCredential
         }
         guard let attestationObject else { throw SecurityKeyError.missingAttestation }
-        let publicKey = try publicKeyFromAttestationObject(
+        let registration = try verifyRegistration(
             attestationObject: attestationObject.hexPrefixed,
-            credentialId: credentialID.hexPrefixed
+            credentialId: credentialID.hexPrefixed,
+            rpId: relyingPartyID,
+            requireUserVerification: requirePIN
         )
-        return Registration(credentialID: credentialID, publicKey: try P256PublicKey(publicKey))
+        return NewKey(
+            credentialID: credentialID,
+            publicKey: try P256PublicKey(registration.publicKey),
+            kind: .securityKey,
+            name: displayName,
+            relyingPartyID: relyingPartyID,
+            requirePIN: requirePIN,
+            pinEnforcedByKey: registration.pinEnforcedByKey
+        )
     }
 
     /// Asks the user to present one of the given keys and sign `challenge`. The response goes to the core as-is.
-    func assert(challenge: Data, allowedCredentialIDs: [Data]) async throws -> Assertion {
+    func assert(challenge: Data, allowedCredentialIDs: [Data], requireUserVerification: Bool) async throws -> Assertion {
         let provider = ASAuthorizationSecurityKeyPublicKeyCredentialProvider(relyingPartyIdentifier: relyingPartyID)
         let request = provider.createCredentialAssertionRequest(challenge: challenge)
         request.allowedCredentials = allowedCredentialIDs.map(Self.descriptor)
-        // Prompts for the key's FIDO2 PIN if one is set. Set one with Yubico Authenticator.
-        request.userVerificationPreference = .preferred
+        // Prompts for the key's FIDO2 PIN: always for keys registered with one, otherwise if a PIN is set.
+        request.userVerificationPreference = requireUserVerification ? .required : .preferred
 
         guard case .assertion(let credentialID, let authenticatorData, let clientDataJSON, let signature) = try await perform(request) else {
             throw SecurityKeyError.unexpectedCredential
@@ -164,15 +172,23 @@ struct WalletSigner: WebAuthnSigner {
     let keys: [WalletKey]
     let authenticator: SecurityKeyAuthenticator?
 
-    func assert(challenge: Data, allowedCredentialIDs: [Data]) async throws -> Assertion {
+    func assert(challenge: Data, allowedCredentialIDs: [Data], requireUserVerification: Bool) async throws -> Assertion {
         let allowed = keys.filter { allowedCredentialIDs.contains($0.credentialID) }
         let securityKeys = allowed.filter { $0.kind == .securityKey }
         if !securityKeys.isEmpty {
             guard let authenticator else { throw SecurityKeyError.unavailable }
-            return try await authenticator.assert(challenge: challenge, allowedCredentialIDs: securityKeys.map(\.credentialID))
+            return try await authenticator.assert(
+                challenge: challenge,
+                allowedCredentialIDs: securityKeys.map(\.credentialID),
+                requireUserVerification: securityKeys.contains { $0.requirePIN }
+            )
         }
         guard let deviceKey = allowed.first else { throw SecurityKeyError.noKeys }
-        return try await DeviceKeys.signer(for: deviceKey).assert(challenge: challenge, allowedCredentialIDs: [deviceKey.credentialID])
+        return try await DeviceKeys.signer(for: deviceKey).assert(
+            challenge: challenge,
+            allowedCredentialIDs: [deviceKey.credentialID],
+            requireUserVerification: requireUserVerification
+        )
     }
 
     /// Whether confirming will prompt for a security key.
