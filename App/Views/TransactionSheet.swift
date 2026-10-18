@@ -94,7 +94,7 @@ struct TransactionSheet: View {
             Section {
                 HStack {
                     ProgressView()
-                    Text(model.signer.usesSecurityKey ? "Waiting for your security key…" : "Signing…").foregroundStyle(.secondary)
+                    Text(signingPrompt).foregroundStyle(.secondary)
                 }
             }
         case .submitting:
@@ -143,6 +143,11 @@ struct TransactionSheet: View {
         default:
             EmptyView()
         }
+    }
+
+    private var signingPrompt: String {
+        guard model.signer.usesSecurityKey else { return "Signing…" }
+        return model.activeKeys.contains { $0.requirePIN } ? "Enter your key's PIN and touch it…" : "Touch your security key…"
     }
 
     private var isBusy: Bool {

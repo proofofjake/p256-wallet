@@ -67,6 +67,11 @@ final class AppModel {
             removeWallet()
             chain = .baseSepolia
         }
+        // UI tests: forget the wallet record but keep device keys, as after reinstalling (the Keychain survives).
+        if ProcessInfo.processInfo.arguments.contains("-forgetWalletRecord") {
+            WalletStore.delete()
+            wallet = nil
+        }
         #endif
     }
 
@@ -153,6 +158,30 @@ final class AppModel {
         await refresh()
     }
 
+    /// Restores a wallet from a backup file exported in Settings. The signing core checks the file's keys produce its
+    /// address before anything is saved.
+    func restoreWallet(from data: Data) async throws {
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let keys = object["keys"] as? [[String: Any]], keys.contains(where: { $0["credentialId"] != nil }) {
+            throw RestoreError.fromExtension
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let record = try? decoder.decode(WalletRecord.self, from: data) else { throw RestoreError.notABackup }
+        let address = try checkWalletRecord(
+            address: record.address,
+            initialOwners: record.initialOwners.map(\.hexPrefixed),
+            keys: record.keys.map(\.ownerKey)
+        )
+        guard record.keys.contains(where: { $0.kind == .securityKey || DeviceKeys.exists($0) }) else {
+            throw RestoreError.noUsableKeys
+        }
+        let restored = WalletRecord(address: address, initialOwners: record.initialOwners, keys: record.keys, createdAt: record.createdAt)
+        try WalletStore.save(restored)
+        wallet = restored
+        await refresh()
+    }
+
     /// Records a key after its `addOwnerPublicKey` transaction confirmed on the current chain.
     func recordAddedKey(_ key: NewKey, ownerIndex: Int) throws {
         guard var record = wallet else { return }
@@ -170,5 +199,22 @@ final class AppModel {
         ethBalance = nil
         tokens = []
         isDeployed = nil
+    }
+}
+
+enum RestoreError: LocalizedError {
+    case notABackup
+    case fromExtension
+    case noUsableKeys
+
+    var errorDescription: String? {
+        switch self {
+        case .notABackup:
+            "This file isn't a P256 Wallet backup. Choose the file saved from Settings → Export backup file."
+        case .fromExtension:
+            "This backup is from the browser extension. Its keys only work there, so it can't be restored on iPhone."
+        case .noUsableKeys:
+            "None of this backup's keys can sign on this phone. Test keys live only on the phone that made them, and are deleted when a wallet is removed."
+        }
     }
 }

@@ -70,7 +70,7 @@ Rerun `./core/scripts/build-swift.sh` after moving the `core` submodule to a new
 
 `Config/Local.xcconfig` (gitignored) holds your team ID and bundle ID; copy `Config/Local.example.xcconfig` on a new machine.
 
-In the app, choose **Use a test key on this device**, then fund the address with Base Sepolia ETH
+In the app, choose **Use a test key on this phone**, then fund the address with Base Sepolia ETH
 (e.g. the [CDP faucet](https://portal.cdp.coinbase.com/products/faucet)) and send something.
 
 ## Enabling YubiKeys
@@ -97,6 +97,17 @@ Tips:
 - Both your keys work on iPhone 15 and later over USB-C; the NFC one also works by tapping the top of the phone.
 - While iterating on the AASA file, use `webcredentials:<domain>?mode=developer` in the entitlements and enable
   *Settings → Developer → Associated Domains Development* on the phone to bypass Apple's CDN cache.
+
+## Back up the wallet
+
+A YubiKey on its own can't restore this wallet: keys are registered as non-discoverable credentials, so the key
+doesn't store which wallet it belongs to. After setup, use **Settings → Export backup file** and save the file
+somewhere safe (Files, iCloud Drive). It holds no secrets (public keys, credential IDs and the address), but you
+need it to sign. To restore, choose **Restore from a backup file** on the welcome screen. The signing core checks
+the file's keys produce its address before anything is saved.
+
+Test keys (made with **Use a test key on this phone**) live in this phone's Keychain. They survive reinstalling
+the app, but they're deleted when you remove the wallet, and a backup can't bring them back.
 
 ## Gas sponsorship
 
@@ -126,9 +137,9 @@ xcodebuild test -project P256Wallet.xcodeproj -scheme P256Wallet \
 
 ## Known gaps / next steps
 
-- **Restore from YubiKey.** Credentials are non-discoverable, so the wallet record (credential IDs + public keys)
-  lives in the Keychain and can be exported from Settings. Restoring from the key alone needs discoverable
-  credentials plus public-key recovery from signatures.
+- **Restore from the YubiKey alone.** Credentials are non-discoverable, so the key doesn't store which wallet it
+  belongs to. Today a wallet is restored from its backup file plus a key (see [Back up the wallet](#back-up-the-wallet)).
+  Restoring from the key alone needs discoverable credentials, which use one of the key's limited storage slots.
 - **Owner sync across chains.** Keys added after setup exist only on the chain where they were added. Coinbase
   Smart Wallet's `executeWithoutChainIdValidation` can replay owner changes across chains.
 - **WalletConnect** (Reown WalletKit) for dapp connections, plus EIP-712 typed-data signing.

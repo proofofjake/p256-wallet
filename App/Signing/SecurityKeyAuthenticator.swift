@@ -16,7 +16,7 @@ enum SecurityKeyError: LocalizedError {
         case .cancelled: "Cancelled"
         case .unexpectedCredential: "The security key returned an unexpected credential type"
         case .missingAttestation: "The security key didn't return its public key"
-        case .unavailable: "Security keys aren't configured for this build. See README → Enabling YubiKeys."
+        case .unavailable: "This build can't use security keys yet: it needs a paid Apple Developer account and a domain (see \"Enabling YubiKeys\" in the README)."
         case .noKeys: "This wallet has no keys that can sign on this network"
         }
     }

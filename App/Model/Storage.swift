@@ -135,4 +135,10 @@ enum DeviceKeys {
     static func delete(_ key: WalletKey) {
         Keychain.delete(account(key.credentialID))
     }
+
+    /// Whether this phone still holds the key's private key (it doesn't after the wallet was removed, or on another
+    /// phone).
+    static func exists(_ key: WalletKey) -> Bool {
+        Keychain.get(account(key.credentialID)) != nil
+    }
 }

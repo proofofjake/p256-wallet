@@ -13,7 +13,7 @@ final class SmokeTests: XCTestCase {
     }
 
     func testCreateWalletEstimateAndSign() throws {
-        app.buttons["Use a test key on this device"].tap()
+        app.buttons["Use a test key on this phone"].tap()
 
         let receive = app.buttons["Receive"]
         XCTAssertTrue(receive.waitForExistence(timeout: 30), "home screen did not appear")
@@ -47,6 +47,43 @@ final class SmokeTests: XCTestCase {
         app.buttons["Sign"].tap()
         XCTAssertTrue(app.buttons["Copy signature"].waitForExistence(timeout: 30), "signing did not complete")
         snapshot("4-signed")
+    }
+
+    /// Export → forget the wallet (as after reinstalling) → restore from the backup file → same wallet, still signs.
+    func testBackupFileRestoresTheWallet() throws {
+        app.terminate()
+        app.launchArguments = ["-resetWallet", "-writeTestBackup"]
+        app.launch()
+        app.buttons["Use a test key on this phone"].tap()
+        XCTAssertTrue(app.buttons["Receive"].waitForExistence(timeout: 30), "home screen did not appear")
+        let address = try walletAddress()
+
+        app.buttons["Settings"].tap()
+        XCTAssertTrue(app.buttons["Export backup file"].waitForExistence(timeout: 10))
+        app.buttons["Done"].tap()
+
+        app.terminate()
+        app.launchArguments = ["-forgetWalletRecord", "-restoreTestBackup"]
+        app.launch()
+        XCTAssertTrue(app.buttons["Receive"].waitForExistence(timeout: 30), "restore did not reach the home screen")
+        XCTAssertEqual(try walletAddress(), address)
+        snapshot("5-restored")
+
+        app.buttons["Sign message"].tap()
+        let message = app.textFields.firstMatch
+        message.tap()
+        message.typeText("restored")
+        app.buttons["Sign"].tap()
+        XCTAssertTrue(app.buttons["Copy signature"].waitForExistence(timeout: 30), "the restored wallet could not sign")
+    }
+
+    private func walletAddress() throws -> String {
+        app.buttons["Receive"].tap()
+        let text = app.staticTexts.matching(NSPredicate(format: "label MATCHES '^0x[0-9a-fA-F]{40}$'")).firstMatch
+        XCTAssertTrue(text.waitForExistence(timeout: 5))
+        let address = text.label
+        app.buttons["Done"].tap()
+        return address
     }
 
     private func snapshot(_ name: String) {
