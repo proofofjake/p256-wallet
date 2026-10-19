@@ -39,23 +39,27 @@ struct SettingsView: View {
                 } header: {
                     Text("Bundler & paymaster")
                 } footer: {
-                    Text("Defaults to Pimlico's public bundler. For gas sponsorship, paste an ERC-7677 paymaster URL, e.g. a Coinbase Developer Platform endpoint, which serves as both bundler and paymaster on Base.")
+                    Text("Leave blank to use Pimlico's free public bundler. To have gas sponsored, paste an ERC-7677 paymaster URL, such as a Coinbase Developer Platform endpoint (it works as both bundler and paymaster on Base).")
                 }
 
                 keysSection
 
                 if let wallet = model.wallet {
-                    Section("Wallet") {
+                    Section {
                         LabeledContent("Address") { AddressText(address: wallet.address) }
                         Link(destination: model.chain.explorerAddressURL(wallet.address)) {
                             Label("View on explorer", systemImage: "arrow.up.right.square")
                         }
-                        if let export = try? WalletStore.export(wallet), let json = String(data: export, encoding: .utf8) {
-                            ShareLink(item: json, subject: Text("P256 Wallet backup")) {
-                                Label("Export wallet details", systemImage: "square.and.arrow.up")
+                        if let url = backupFile(for: wallet) {
+                            ShareLink(item: url, subject: Text("P256 Wallet backup")) {
+                                Label("Export backup file", systemImage: "square.and.arrow.up")
                             }
                         }
-                        Button("Remove wallet from this device", role: .destructive) { confirmRemove = true }
+                        Button("Remove wallet from this phone", role: .destructive) { confirmRemove = true }
+                    } header: {
+                        Text("Wallet")
+                    } footer: {
+                        Text("Save the backup file somewhere safe, such as Files or iCloud Drive. To restore this wallet you'll need the file and one of its keys: a YubiKey on its own can't restore it. The file has no secrets, but it does reveal your wallet's address.")
                     }
                 }
 
@@ -75,13 +79,13 @@ struct SettingsView: View {
             .onAppear(perform: loadEndpoints)
             .onChange(of: model.chain) { loadEndpoints() }
             .sheet(item: $addKeyRequest) { TransactionSheet(request: $0) }
-            .confirmationDialog("Remove wallet?", isPresented: $confirmRemove, titleVisibility: .visible) {
+            .confirmationDialog("Remove wallet from this phone?", isPresented: $confirmRemove, titleVisibility: .visible) {
                 Button("Remove", role: .destructive) {
                     model.removeWallet()
                     dismiss()
                 }
             } message: {
-                Text("Funds stay in the account onchain, but this device forgets the key credential IDs needed to sign. Export the wallet details first if you want to restore it later.")
+                Text("Your funds stay onchain, but this phone forgets the wallet. A YubiKey on its own can't bring it back: to restore it you'll need the backup file (Export backup file) and one of your keys. Test keys stored on this phone are deleted for good.")
             }
         }
     }
@@ -98,7 +102,9 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    if !key.isOwner(on: model.chain) {
+                    if key.kind != .securityKey && !DeviceKeys.exists(key) {
+                        Text("Private key not on this phone").font(.caption).foregroundStyle(.orange)
+                    } else if !key.isOwner(on: model.chain) {
                         Text("Not on \(model.chain.name)").font(.caption).foregroundStyle(.orange)
                     }
                 }
@@ -122,6 +128,19 @@ struct SettingsView: View {
         } footer: {
             Text("Any one of these keys can sign. Keys added after setup are owners only on the network where you added them.")
         }
+    }
+
+    /// The backup file to share: the wallet record as JSON, named so it's recognizable in Files.
+    private func backupFile(for wallet: WalletRecord) -> URL? {
+        guard let data = try? WalletStore.export(wallet) else { return nil }
+        let url = FileManager.default.temporaryDirectory.appending(path: "p256-wallet-\(wallet.address.prefix(10)).json")
+        #if DEBUG
+        // UI tests restore from this copy, since driving the system file picker is unreliable.
+        if ProcessInfo.processInfo.arguments.contains("-writeTestBackup") {
+            try? data.write(to: URL.documentsDirectory.appending(path: "uitest-backup.json"))
+        }
+        #endif
+        return (try? data.write(to: url)) != nil ? url : nil
     }
 
     private func pinLabel(_ key: WalletKey) -> String {

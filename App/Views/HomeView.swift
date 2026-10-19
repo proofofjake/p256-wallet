@@ -29,6 +29,7 @@ struct HomeView: View {
                 ToolbarItem(placement: .topBarLeading) { networkMenu }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showSettings = true } label: { Image(systemName: "gearshape") }
+                        .accessibilityLabel("Settings")
                 }
             }
             .sheet(isPresented: $showReceive) { ReceiveView() }

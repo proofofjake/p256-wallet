@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import WalletClient
 
 struct OnboardingView: View {
@@ -16,6 +17,7 @@ struct OnboardingView: View {
     @State private var error: String?
     /// Off by default: a touch is enough unless the owner chooses a PIN.
     @State private var requirePIN = false
+    @State private var showImporter = false
 
     var body: some View {
         VStack(spacing: 24) {
@@ -26,6 +28,14 @@ struct OnboardingView: View {
         }
         .padding(24)
         .animation(.default, value: isWorking)
+        #if DEBUG
+        .task {
+            // UI tests: restore from the copy Settings wrote with -writeTestBackup.
+            if ProcessInfo.processInfo.arguments.contains("-restoreTestBackup") {
+                await restore(.success(URL.documentsDirectory.appending(path: "uitest-backup.json")))
+            }
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -55,18 +65,27 @@ struct OnboardingView: View {
                     .disabled(model.authenticator == nil)
                 if model.authenticator == nil {
                     Text(AppConfig.isSimulator
-                         ? "Security keys don't work in the Simulator."
-                         : "Security keys need a relying party domain and the Associated Domains entitlement. See README → Enabling YubiKeys.")
+                         ? "Security keys don't work in the Simulator. Try it with a test key instead."
+                         : "This build can't use security keys yet: it needs a paid Apple Developer account and a domain (see the README). You can try everything with a test key stored on this phone.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
-                Button("Use a test key on this device") { Task { await createWithDeviceKey() } }
+                Button("Use a test key on this phone") { Task { await createWithDeviceKey() } }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
                     .disabled(isWorking)
+                Button("Restore from a backup file") { showImporter = true }
+                    .disabled(isWorking)
+                Text("Restoring needs the backup file exported from Settings. A YubiKey on its own can't restore a wallet.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
             .padding(.top, 12)
+            .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json, .plainText]) { result in
+                Task { await restore(result) }
+            }
         }
     }
 
@@ -121,6 +140,18 @@ struct OnboardingView: View {
             }
         } catch SecurityKeyError.cancelled {
             // User dismissed the sheet; stay on this step.
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func restore(_ result: Result<URL, Error>) async {
+        error = nil
+        do {
+            let url = try result.get()
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+            try await model.restoreWallet(from: Data(contentsOf: url))
         } catch {
             self.error = error.localizedDescription
         }

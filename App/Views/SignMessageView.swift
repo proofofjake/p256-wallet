@@ -29,7 +29,7 @@ struct SignMessageView: View {
                     case false?:
                         ErrorText(message: "The account rejected this signature")
                     case nil:
-                        Label("Account not deployed yet, so the signature is ERC-6492 wrapped. Verifiers that support ERC-6492 (viem, most SIWE libraries) can check it.", systemImage: "info.circle")
+                        Label("This wallet isn't onchain yet (it deploys with its first transaction), so the signature is wrapped in the ERC-6492 format. Apps using viem or a recent Sign-In with Ethereum library can still verify it.", systemImage: "info.circle")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
