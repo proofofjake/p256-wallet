@@ -12,7 +12,8 @@ import Testing
             ownerIndex: index,
             publicKey: PublicKey(x: raw.prefix(32).hexPrefixed, y: raw.suffix(32).hexPrefixed),
             rpId: LocalWebAuthnSigner.relyingPartyID,
-            requireUserVerification: false
+            requireUserVerification: false,
+            addedOnChainId: nil
         )
     }
 
@@ -27,16 +28,16 @@ import Testing
             sender: address, nonce: "0x0", deployed: false, initialOwners: initialOwners, calls: [call],
             gasPrice: price, signingOwnerIndex: 0
         )
-        let review = try reviewUserOperation(op: op, chainId: 84532, tokens: [], functionSignatures: [])
+        let review = try reviewUserOperation(op: op, chainId: 84532, tokens: [], functionSignatures: [], newOwner: nil)
         let assertion = try await LocalWebAuthnSigner(privateKey: key).assert(challenge: try Data(hex: review.hash), allowedCredentialIDs: [], requireUserVerification: false)
-        let signed = try signUserOperation(op: op, chainId: 84532, assertion: assertion, owners: owners, initialOwners: initialOwners)
+        let signed = try signUserOperation(op: op, chainId: 84532, assertion: assertion, owners: owners, initialOwners: initialOwners, newOwner: nil)
         #expect(signed.signature.count > 600)
 
         // A different key's assertion is refused with a readable error.
         let stranger = try await LocalWebAuthnSigner(privateKey: P256.Signing.PrivateKey())
             .assert(challenge: try Data(hex: review.hash), allowedCredentialIDs: [], requireUserVerification: false)
         #expect(throws: CoreError.self) {
-            try signUserOperation(op: op, chainId: 84532, assertion: stranger, owners: owners, initialOwners: initialOwners)
+            try signUserOperation(op: op, chainId: 84532, assertion: stranger, owners: owners, initialOwners: initialOwners, newOwner: nil)
         }
     }
 

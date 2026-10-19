@@ -55,7 +55,8 @@ struct NewKey: Sendable {
     let name: String
     /// The WebAuthn relying party ID the key was registered under.
     let relyingPartyID: String
-    /// The owner chose to protect the key with its PIN, so every signature must be PIN-verified.
+    /// The key was registered with a PIN. New keys can't be on iOS (see `SecurityKeyAuthenticator.register`); this
+    /// is for keys from earlier versions, which still ask for it.
     var requirePIN = false
     /// The key itself refuses to sign without its PIN (`credProtect`), whatever any app asks for.
     var pinEnforcedByKey = false
@@ -119,7 +120,8 @@ struct WalletKey: Codable, Hashable, Identifiable, Sendable {
             ownerIndex: UInt32(ownerIndex),
             publicKey: publicKey.core,
             rpId: rpID,
-            requireUserVerification: requirePIN
+            requireUserVerification: requirePIN,
+            addedOnChainId: addedOnChainID
         )
     }
 }

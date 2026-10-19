@@ -91,9 +91,11 @@ WebAuthn relying party domain. That needs:
 4. Regenerate (`xcodegen generate`), build to a device, and pick **Set up with a security key**.
 
 Tips:
-- Optionally choose **Require the key's PIN** when registering a key. Every signature from it then needs the PIN as
-  well as a touch, and the signing core refuses any that weren't PIN-verified. Set the PIN first with the Yubico
-  Authenticator app. iOS can't ask the key to enforce the PIN itself, so on iPhone the core enforces it.
+- Keys sign with a touch. There's no PIN option on iPhone: a PIN only protects a key if the key enforces it itself
+  (`credProtect`), which iOS can't ask for, and a PIN that only the app checks can be switched off by editing a backup
+  file. To require the PIN on every signature anyway, set a FIDO2 PIN and turn on "always require user verification"
+  in the YubiKey itself, on keys that support it: `ykman fido config toggle-always-uv`. Keys registered with a PIN
+  by earlier versions still ask for it, labelled "checked by this app only".
 - Both your keys work on iPhone 15 and later over USB-C; the NFC one also works by tapping the top of the phone.
 - While iterating on the AASA file, use `webcredentials:<domain>?mode=developer` in the entitlements and enable
   *Settings → Developer → Associated Domains Development* on the phone to bypass Apple's CDN cache.

@@ -6,6 +6,8 @@ public struct PreparedOperation: Sendable {
     public let userOperation: UserOperation
     /// What the review screen shows, decoded by the core from `userOperation` itself. `review.hash` is the challenge.
     public let review: OperationReview
+    /// The key this operation adds as an owner, when it's the app's own add-key flow. Signing passes it back.
+    public let newOwner: PublicKey?
 }
 
 public struct MessageSignature: Sendable {
@@ -69,12 +71,14 @@ public struct SmartAccount: Sendable {
     }
 
     /// Builds a user operation for `calls`, estimates gas, attaches paymaster data if configured, and has the core
-    /// review it. `tokens` and `functionSignatures` help the review name tokens and functions.
+    /// review it. `tokens` and `functionSignatures` help the review name tokens and functions. `newOwner` is only for
+    /// the add-key flow: the key `verifyRegistration` just returned. The core refuses to add any other key.
     public func prepare(
         calls: [Call],
         signingOwnerIndex: UInt32,
         tokens: [Token] = [],
-        functionSignatures: [String] = []
+        functionSignatures: [String] = [],
+        newOwner: PublicKey? = nil
     ) async throws -> PreparedOperation {
         async let deployedTask = isDeployed()
         async let nonceTask = nonce()
@@ -104,8 +108,14 @@ public struct SmartAccount: Sendable {
         }
         op.signature = "0x"
 
-        let review = try reviewUserOperation(op: op, chainId: chain.id, tokens: tokens, functionSignatures: functionSignatures)
-        return PreparedOperation(userOperation: op, review: review)
+        let review = try reviewUserOperation(
+            op: op,
+            chainId: chain.id,
+            tokens: tokens,
+            functionSignatures: functionSignatures,
+            newOwner: newOwner
+        )
+        return PreparedOperation(userOperation: op, review: review, newOwner: newOwner)
     }
 
     /// 1000 ETH, only ever used in simulation.
@@ -125,7 +135,8 @@ public struct SmartAccount: Sendable {
             chainId: chain.id,
             assertion: assertion,
             owners: owners,
-            initialOwners: initialOwners
+            initialOwners: initialOwners,
+            newOwner: prepared.newOwner
         )
     }
 

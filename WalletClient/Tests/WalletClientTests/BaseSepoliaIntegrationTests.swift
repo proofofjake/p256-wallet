@@ -20,7 +20,8 @@ struct BaseSepoliaIntegrationTests {
             ownerIndex: 0,
             publicKey: PublicKey(x: raw.prefix(32).hexPrefixed, y: raw.suffix(32).hexPrefixed),
             rpId: LocalWebAuthnSigner.relyingPartyID,
-            requireUserVerification: false
+            requireUserVerification: false,
+            addedOnChainId: nil
         )
         let initialOwners = [try ownerBytes(key: owner.publicKey)]
         let account = SmartAccount(address: try accountAddress(initialOwners: initialOwners), initialOwners: initialOwners, chain: chain)

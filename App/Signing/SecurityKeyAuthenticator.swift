@@ -42,9 +42,10 @@ final class SecurityKeyAuthenticator: NSObject {
         self.relyingPartyID = relyingPartyID
     }
 
-    /// Creates a new P-256 credential on the key and has the core check it: the right relying party, a hardware key
-    /// (not a synced passkey), and a verified PIN when `requirePIN` is set.
-    func register(displayName: String, excluding existingCredentialIDs: [Data], requirePIN: Bool) async throws -> NewKey {
+    /// Creates a new P-256 credential on the key and has the core check it: the right relying party and a hardware
+    /// key (not a synced passkey). There's no PIN option: a PIN only protects a key if the key enforces it itself
+    /// (credProtect), which iOS can't request, and one that only the app checks can be cleared by editing a backup.
+    func register(displayName: String, excluding existingCredentialIDs: [Data]) async throws -> NewKey {
         let provider = ASAuthorizationSecurityKeyPublicKeyCredentialProvider(relyingPartyIdentifier: relyingPartyID)
         let request = provider.createCredentialRegistrationRequest(
             challenge: Self.randomBytes(32),
@@ -56,9 +57,7 @@ final class SecurityKeyAuthenticator: NSObject {
         // Non-discoverable: doesn't use one of the key's limited resident slots or force PIN setup.
         // The credential ID is stored in the wallet record instead.
         request.residentKeyPreference = .discouraged
-        // With a PIN chosen, the key must verify it now and on every signature. iOS has no credProtect option, so
-        // here it's enforced by the core rather than by the key itself.
-        request.userVerificationPreference = requirePIN ? .required : .preferred
+        request.userVerificationPreference = .preferred
         request.attestationPreference = .none
         // Stops the same physical key being registered twice (e.g. as its own backup).
         request.excludedCredentials = existingCredentialIDs.map(Self.descriptor)
@@ -71,16 +70,14 @@ final class SecurityKeyAuthenticator: NSObject {
             attestationObject: attestationObject.hexPrefixed,
             credentialId: credentialID.hexPrefixed,
             rpId: relyingPartyID,
-            requireUserVerification: requirePIN
+            requireUserVerification: false
         )
         return NewKey(
             credentialID: credentialID,
             publicKey: try P256PublicKey(registration.publicKey),
             kind: .securityKey,
             name: displayName,
-            relyingPartyID: relyingPartyID,
-            requirePIN: requirePIN,
-            pinEnforcedByKey: registration.pinEnforcedByKey
+            relyingPartyID: relyingPartyID
         )
     }
 
