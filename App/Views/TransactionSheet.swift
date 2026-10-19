@@ -8,6 +8,8 @@ struct TransactionRequest: Identifiable {
     let calls: [Call]
     /// Lets the review name the function and decode its arguments (used only if the selector matches).
     var functionSignatures: [String] = []
+    /// Only for adding a key: the key just registered, which the core then lets these calls add as an owner.
+    var newOwner: PublicKey?
     var onConfirmed: (@MainActor (UserOperationReceipt) -> Void)?
 }
 
@@ -180,7 +182,8 @@ struct TransactionSheet: View {
                 calls: request.calls,
                 signingOwnerIndex: signingIndex,
                 tokens: model.reviewTokens,
-                functionSignatures: request.functionSignatures
+                functionSignatures: request.functionSignatures,
+                newOwner: request.newOwner
             )
             async let balanceTask = account.balance()
             let (op, balance) = try await (preparedTask, balanceTask)

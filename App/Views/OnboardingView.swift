@@ -15,8 +15,6 @@ struct OnboardingView: View {
     @State private var step: Step = .welcome
     @State private var isWorking = false
     @State private var error: String?
-    /// Off by default: a touch is enough unless the owner chooses a PIN.
-    @State private var requirePIN = false
     @State private var showImporter = false
 
     var body: some View {
@@ -98,7 +96,7 @@ struct OnboardingView: View {
             Text("Plug in your YubiKey or hold it near the top of the phone when prompted.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
-            PINToggle(requirePIN: $requirePIN)
+            PINNote()
             Button("Register primary key") { Task { await register(name: "Primary key", excluding: []) } }
                 .primaryAction()
                 .disabled(isWorking)
@@ -115,7 +113,6 @@ struct OnboardingView: View {
             Text("If your only key is lost or broken, the funds in this wallet are gone for good. Register a second YubiKey now and keep it somewhere safe.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
-            PINToggle(requirePIN: $requirePIN)
             Button("Register backup key") {
                 Task { await register(name: "Backup key", excluding: [primary.credentialID], primary: primary) }
             }
@@ -132,7 +129,7 @@ struct OnboardingView: View {
         defer { isWorking = false }
         error = nil
         do {
-            let key = try await authenticator.register(displayName: name, excluding: excluding, requirePIN: requirePIN)
+            let key = try await authenticator.register(displayName: name, excluding: excluding)
             if let primary {
                 await create([primary, key])
             } else {
@@ -180,16 +177,11 @@ struct OnboardingView: View {
     }
 }
 
-/// The per-key PIN choice, off by default.
-struct PINToggle: View {
-    @Binding var requirePIN: Bool
-
+/// Why there's no PIN option, and how to get one anyway.
+struct PINNote: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Toggle("Require the key's PIN", isOn: $requirePIN)
-            Text("Every signature will need the key's FIDO2 PIN as well as a touch, so a lost key can't be used on its own. Set a PIN first with Yubico Authenticator.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
+        Text("Keys sign with a touch. iOS can't ask a key to enforce a PIN, so to require one on every signature, turn it on in the YubiKey itself: `ykman fido config toggle-always-uv`.")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
     }
 }

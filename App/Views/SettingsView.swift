@@ -11,7 +11,6 @@ struct SettingsView: View {
     @State private var addKeyError: String?
     @State private var isRegistering = false
     @State private var confirmRemove = false
-    @State private var newKeyRequiresPIN = false
 
     var body: some View {
         @Bindable var model = model
@@ -110,7 +109,7 @@ struct SettingsView: View {
                 }
             }
             if model.authenticator != nil {
-                PINToggle(requirePIN: $newKeyRequiresPIN)
+                PINNote()
                 Button {
                     Task { await addSecurityKey() }
                 } label: {
@@ -145,7 +144,7 @@ struct SettingsView: View {
 
     private func pinLabel(_ key: WalletKey) -> String {
         guard key.requirePIN else { return "" }
-        return key.pinEnforcedByKey ? " · PIN (enforced by the key)" : " · PIN required"
+        return key.pinEnforcedByKey ? " · PIN (enforced by the key)" : " · PIN (checked by this app only)"
     }
 
     private func loadEndpoints() {
@@ -164,13 +163,13 @@ struct SettingsView: View {
             let name = "Key \(wallet.keys.count + 1)"
             let newKey = try await authenticator.register(
                 displayName: name,
-                excluding: wallet.keys.map(\.credentialID),
-                requirePIN: newKeyRequiresPIN
+                excluding: wallet.keys.map(\.credentialID)
             )
             let ownerIndex = try await account.nextOwnerIndex()
             addKeyRequest = TransactionRequest(
                 title: "Add \(name)",
                 calls: [try addOwnerCall(account: account.address, key: newKey.publicKey.core)],
+                newOwner: newKey.publicKey.core,
                 onConfirmed: { _ in
                     do {
                         try model.recordAddedKey(newKey, ownerIndex: Int(ownerIndex))
